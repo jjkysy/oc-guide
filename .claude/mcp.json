@@ -1,0 +1,29 @@
+{
+  "description": "MCP Server 配置示例 - 用于参考，非实际运行配置",
+  "note": "以下配置展示了 OpenClaw 常用 MCP Server 的配置模板，请根据实际需要修改后使用",
+  "examples": {
+    "browser-tool": {
+      "command": "npx",
+      "args": ["@anthropic/mcp-browser"],
+      "env": {},
+      "description": "浏览器自动化 MCP Server"
+    },
+    "google-calendar": {
+      "command": "npx",
+      "args": ["openclaw-google-calendar"],
+      "env": {
+        "GOOGLE_CLIENT_ID": "${GOOGLE_CLIENT_ID}",
+        "GOOGLE_CLIENT_SECRET": "${GOOGLE_CLIENT_SECRET}"
+      },
+      "description": "Google Calendar MCP Server"
+    },
+    "gmail": {
+      "command": "npx",
+      "args": ["gmail-mcp"],
+      "env": {
+        "GMAIL_OAUTH_TOKEN": "${GMAIL_OAUTH_TOKEN}"
+      },
+      "description": "Gmail MCP Server"
+    }
+  }
+}
