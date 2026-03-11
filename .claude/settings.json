@@ -1,0 +1,13 @@
+{
+  "description": "OpenClaw 配置与应用指南项目的 Claude Code 设置",
+  "permissions": {
+    "allow": [
+      "Read",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch"
+    ]
+  },
+  "project_context": "这是一个 OpenClaw AI 代理工具的中文配置和使用指南仓库。包含 10 章指南、10 套测试用例、3 个便捷脚本和推荐技能。"
+}
