@@ -269,16 +269,26 @@ echo "## 绝对规则
 
 ## 推荐技能
 
-以下是社区公认的高质量安全技能：
+### 内置技能（随 OpenClaw 发布）
 
 | 技能 | 功能 | 来源 |
 |------|------|------|
-| `superpowers` | 增强代理的系统操作能力 | ClawHub 官方 |
-| `advanced-skill-creator` | 辅助创建新技能 | ClawHub 官方 |
-| `openclaw-config-reference` | 配置文件参考和帮助 | ClawHub 官方 |
-| `browser-tool` | 浏览器自动化 | ClawHub 官方 |
+| `skill-creator` | 创建、编辑、改进和审查技能 | [openclaw/openclaw 内置](https://github.com/openclaw/openclaw/tree/main/skills/skill-creator) |
 
-> 即使是推荐技能，也建议先审查 SKILL.md 内容再启用。
+### 社区高质量技能（通过 ClawHub 安装）
+
+以下是 2026 年下载量和社区评价最高的技能（来源：[Apiyi.com Top 10](https://help.apiyi.com/en/openclaw-skill-recommendations-2026-en.html)、[Composio Top 10](https://composio.dev/blog/top-openclaw-skills)）：
+
+| 技能 | 功能 | 安装命令 |
+|------|------|----------|
+| `capability-evolver` | 代理能力进化引擎（35K+ 下载） | `clawhub install capability-evolver` |
+| `openclaw-config-reference` | openclaw.json 配置参考和故障排查 | `clawhub install openclaw-config-reference` |
+| `advanced-skill-creator` | 高级技能创建（5 步研究流程） | `clawhub install advanced-skill-creator` |
+| `mission-control` | 日程和任务管理 | `clawhub install mission-control` |
+| `tavily-search` | 网页搜索集成 | `clawhub install tavily-search` |
+| `browser-relay` | 浏览器自动化 | `clawhub install browser-relay` |
+
+> **⚠️ 即使是推荐技能，也建议先审查 SKILL.md 内容再启用。** ClawHub 注册表中约 20% 的技能存在安全风险（[Koi Security 2026 报告](https://nebius.com/blog/posts/openclaw-security)）。
 
 ## 下一步
 
