@@ -137,6 +137,12 @@ fi
 echo ""
 echo "【运行状态】"
 
+if launchctl list 2>/dev/null | grep -q "com.openclaw.gateway"; then
+    pass "OpenClaw launchd 服务已注册"
+else
+    warn "OpenClaw launchd 服务未注册（可手动运行）"
+fi
+
 if pgrep -f "openclaw" &>/dev/null; then
     pass "OpenClaw 进程运行中"
 elif docker ps 2>/dev/null | grep -q openclaw; then
@@ -150,6 +156,59 @@ if lsof -i :18789 &>/dev/null 2>&1; then
     pass "端口 18789 已监听"
 else
     warn "端口 18789 未监听"
+fi
+
+# 7. NAS 连通性检查（仅在配置了 NAS 时执行）
+NAS_HOST="ugreen-nas"
+NAS_MOUNT="$HOME/mounts/nas-archive"
+NAS_SSH_KEY="$HOME/.ssh/id_nas"
+
+if [[ -f "$NAS_SSH_KEY" ]] || [[ -d "$NAS_MOUNT" ]]; then
+    echo ""
+    echo "【NAS 连通性（Mac Studio 中心节点模式）】"
+
+    # Tailscale 连通性
+    if command -v tailscale &>/dev/null; then
+        if tailscale status 2>/dev/null | grep -q "$NAS_HOST"; then
+            pass "NAS 在 tailnet 中可见：$NAS_HOST"
+        else
+            warn "NAS ($NAS_HOST) 不在当前 tailnet 中，检查 Tailscale 连接"
+        fi
+    fi
+
+    # SSH 密钥
+    if [[ -f "$NAS_SSH_KEY" ]]; then
+        key_perms=$(stat -f %Lp "$NAS_SSH_KEY" 2>/dev/null || stat -c %a "$NAS_SSH_KEY" 2>/dev/null || echo "unknown")
+        if [[ "$key_perms" == "600" ]]; then
+            pass "NAS SSH 密钥权限正确 (600): $NAS_SSH_KEY"
+        else
+            warn "NAS SSH 密钥权限为 $key_perms，建议设为 600"
+        fi
+    else
+        warn "未找到 NAS SSH 密钥：$NAS_SSH_KEY（如使用中心节点模式请配置）"
+    fi
+
+    # SSHFS 挂载状态
+    if [[ -d "$NAS_MOUNT" ]]; then
+        if mount 2>/dev/null | grep -q "$NAS_MOUNT"; then
+            pass "NAS 工作区已挂载：$NAS_MOUNT"
+        else
+            warn "NAS 工作区目录存在但未挂载：$NAS_MOUNT"
+        fi
+    else
+        warn "NAS 挂载目录不存在：$NAS_MOUNT（如使用中心节点模式请创建）"
+    fi
+
+    # NAS SSH 连通性测试（快速超时）
+    if [[ -f "$NAS_SSH_KEY" ]] && command -v ssh &>/dev/null; then
+        if ssh -i "$NAS_SSH_KEY" -o ConnectTimeout=5 -o BatchMode=yes \
+              -o StrictHostKeyChecking=accept-new \
+              "openclaw-agent@$NAS_HOST" "echo ok" &>/dev/null 2>&1; then
+            pass "Mac Studio → NAS SSH 连接正常"
+        else
+            warn "Mac Studio → NAS SSH 连接失败（NAS 可能离线或 Tailscale 未连接）"
+        fi
+    fi
 fi
 
 # 汇总

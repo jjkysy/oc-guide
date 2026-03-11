@@ -1,77 +1,82 @@
 # 008 - 组网与远程沙箱配置
 
-> 以绿联 NAS + macOS + Tailscale 为例，介绍远程部署和安全访问 OpenClaw 的完整方案。
+> 以 Mac Studio（中心节点）+ 绿联 NAS（资料库）+ Tailscale 为例，介绍多层隔离的家庭服务器部署方案。
 
-## 为什么需要远程部署？
+## 架构设计思路
 
-将 OpenClaw 部署在独立设备上的好处：
+本方案的核心原则：**敏感资料永不直接暴露公网**。
 
-- **24/7 运行**：不受个人电脑开关机影响
-- **安全隔离**：代理运行在独立设备上，不直接接触日常工作机
-- **随处访问**：通过 Tailscale 从任何设备安全访问
-- **资源独占**：不影响工作机的性能
+- **Mac Studio** 作为 OpenClaw 中心节点，运行所有 ClawBot 实例
+- **绿联 NAS** 作为资料库，仅接受来自 Mac Studio 的 SSH 访问
+- **Tailscale** 组建私有网络，Mac Studio 通过 SSH 访问 NAS，可信设备通过 Tailscale 访问 Mac Studio
+
+这样天然形成 **3 层隔离**：
+
+```
+第 1 层：公网隔离
+  └── 无任何公网端口暴露，Tailscale P2P 加密隧道
+
+第 2 层：访问路径隔离
+  └── NAS 仅接受 Mac Studio 的内网 SSH，不可被 Tailscale 客户端直接访问
+
+第 3 层：应用沙箱隔离
+  └── OpenClaw 运行在 Docker 沙箱中，文件系统和网络受限
+```
 
 ## 架构概览
 
 ```
                   Tailscale 私有网络（WireGuard 加密）
-                  ┌─────────────────────────────────────┐
-                  │                                     │
-┌─────────┐       │    ┌──────────────┐                  │
-│ MacBook │◄──────┼───►│ 绿联 NAS     │                  │
-│ (客户端) │       │    │ (Docker +    │                  │
-│         │       │    │  OpenClaw)   │                  │
-└─────────┘       │    └──────────────┘                  │
-                  │                                     │
-┌─────────┐       │    ┌──────────────┐                  │
-│  iPhone │◄──────┼───►│  Mac Mini    │                  │
-│ (移动端) │       │    │ (可选备用)    │                  │
-└─────────┘       │    └──────────────┘                  │
-                  └─────────────────────────────────────┘
+                  ┌───────────────────────────────────────────────┐
+                  │                                               │
+┌──────────┐      │    ┌────────────────────────┐                 │
+│ MacBook  │◄─────┼───►│      Mac Studio        │                 │
+│ (可信设备) │      │    │  ┌──────────────────┐  │                 │
+│          │      │    │  │ OpenClaw 中心节点  │  │  SSH (仅内网)   │
+└──────────┘      │    │  │ ClawBot 实例群    │  │◄───────────────►┤
+                  │    │  └──────────────────┘  │                 │
+┌──────────┐      │    │  Tailscale Serve (HTTPS)│  ┌──────────┐  │
+│  iPhone  │◄─────┼───►│  (tailnet 内可信设备    │  │ 绿联 NAS │  │
+│ (可信设备) │      │    │   才可访问)            │  │          │  │
+└──────────┘      │    └────────────────────────┘  │ 资料库   │  │
+                  │                                 │ 账户/    │  │
+                  │                                 │ Workspace│  │
+                  │                                 └──────────┘  │
+                  └───────────────────────────────────────────────┘
+
+公网用户 ────── ✗ ──────────── 无法直接访问 Mac Studio 或 NAS
 ```
 
 ---
 
 ## 一、Tailscale 组网
 
-Tailscale 基于 WireGuard 协议，提供端到端加密的私有网络。设备之间直接点对点连接，**无需暴露任何公网端口**。
+Tailscale 基于 WireGuard 协议，提供端到端加密的私有网络。**无需开放任何公网端口**。
 
 ### 1.1 注册 Tailscale
 
-1. 访问 [tailscale.com](https://tailscale.com/)
-2. 使用 Google / Microsoft / GitHub 账号登录
-3. 免费版支持最多 100 台设备，个人使用完全足够
+1. 访问 [tailscale.com](https://tailscale.com/) 注册账号
+2. 免费版支持最多 100 台设备
 
-### 1.2 在 macOS 上安装
+### 1.2 在 Mac Studio 上安装
 
 ```bash
-# Homebrew
+# Homebrew 安装
 brew install --cask tailscale
 
-# 或从 Mac App Store 安装
-```
-
-启动 Tailscale 并登录：
-
-```bash
-# 命令行登录
+# 启动并登录
 sudo tailscale up
-
-# 或通过菜单栏图标登录
 ```
 
 ### 1.3 在绿联 NAS 上安装
 
-绿联 NAS（UGOS 系统）支持 Docker，可以通过 Docker 安装 Tailscale：
+绿联 NAS（UGOS）通过 Docker 安装 Tailscale：
 
 ```bash
-# SSH 连接到 NAS
-ssh root@192.168.1.100    # 替换为你的 NAS 局域网 IP
+# SSH 连接到 NAS（局域网 IP）
+ssh root@192.168.1.100
 
-# 拉取 Tailscale Docker 镜像
-docker pull tailscale/tailscale:latest
-
-# 运行 Tailscale 容器
+# 拉取并运行 Tailscale 容器
 docker run -d \
   --name tailscale \
   --hostname ugreen-nas \
@@ -83,97 +88,112 @@ docker run -d \
   --network host \
   tailscale/tailscale:latest
 
-# 认证
+# 认证（按提示在浏览器完成）
 docker exec tailscale tailscale up
-# 按提示在浏览器中完成认证
 ```
 
-> **如果 NAS 支持应用商店安装 Tailscale**，优先使用应用商店版本。
+> **注意**：NAS 加入 tailnet 仅用于让 Mac Studio 通过 Tailscale IP 访问，**不**对外开放 ClawBot 服务。如 NAS 支持应用商店安装 Tailscale，优先使用应用商店版本。
 
-### 1.4 验证组网
+### 1.4 在 iPhone / MacBook 等可信设备上安装
+
+从 App Store / Mac App Store 安装 Tailscale，登录同一账号即可加入 tailnet。
+
+### 1.5 设置可信设备 ACL（Tailscale ACL）
+
+在 [Tailscale 控制台](https://login.tailscale.com/admin/acls) 中配置设备访问规则，限制哪些设备可以访问 Mac Studio：
+
+```json5
+// tailscale ACL（示例）
+{
+  "acls": [
+    // 允许可信设备访问 Mac Studio 的 OpenClaw 端口
+    {
+      "action": "accept",
+      "src": ["tag:trusted-client"],
+      "dst": ["tag:openclaw-server:18789"]
+    },
+    // Mac Studio 可以 SSH 访问 NAS
+    {
+      "action": "accept",
+      "src": ["tag:openclaw-server"],
+      "dst": ["tag:nas:22"]
+    }
+  ],
+  "tagOwners": {
+    "tag:trusted-client": ["autogroup:member"],
+    "tag:openclaw-server": ["autogroup:owner"],
+    "tag:nas": ["autogroup:owner"]
+  }
+}
+```
+
+### 1.6 验证组网
 
 ```bash
-# 在 macOS 上查看 tailnet 中的设备
+# 在 Mac Studio 上查看所有设备
 tailscale status
 
-# 预期输出类似：
-# 100.x.x.1  macbook          your-email@...  macOS   -
-# 100.x.x.2  ugreen-nas       your-email@...  linux   -
+# 预期输出：
+# 100.x.x.1  mac-studio       your@email.com  macOS   -
+# 100.x.x.2  ugreen-nas       your@email.com  linux   -
+# 100.x.x.3  macbook          your@email.com  macOS   -
 
-# 测试连通性
-ping ugreen-nas    # 使用 Tailscale 主机名
+# 测试 Mac Studio → NAS 连通性
+ping ugreen-nas
 ```
 
 ---
 
-## 二、在绿联 NAS 上部署 OpenClaw
+## 二、Mac Studio 安装 OpenClaw（中心节点）
 
-### 2.1 创建 OpenClaw 目录
+Mac Studio 运行原生 macOS OpenClaw，作为 24/7 的服务中心。
 
-```bash
-# SSH 到 NAS
-ssh root@ugreen-nas    # 通过 Tailscale 主机名连接
-
-# 创建目录
-mkdir -p /volume1/docker/openclaw/config
-mkdir -p /volume1/docker/openclaw/workspace
-```
-
-### 2.2 使用 Docker Compose 部署
-
-创建 `/volume1/docker/openclaw/docker-compose.yml`：
-
-```yaml
-version: "3.8"
-
-services:
-  openclaw:
-    image: alpine/openclaw:latest
-    container_name: openclaw
-    restart: always
-    ports:
-      - "127.0.0.1:18789:18789"    # 仅绑定到 loopback
-    volumes:
-      - ./config:/root/.openclaw
-      - ./workspace:/workspace
-    environment:
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
-      - TZ=Asia/Shanghai
-    networks:
-      - openclaw-net
-
-networks:
-  openclaw-net:
-    driver: bridge
-```
-
-创建 `.env` 文件：
+### 2.1 安装 OpenClaw
 
 ```bash
-# /volume1/docker/openclaw/.env
-ANTHROPIC_API_KEY=sk-ant-your-key
-TELEGRAM_BOT_TOKEN=123456789:ABCxxx
+brew tap openclaw/tap && brew install openclaw
 ```
 
-> **安全提示**：`.env` 文件权限设为仅 root 可读：`chmod 600 .env`
+### 2.2 设置为 launchd 系统服务（开机自启）
 
-### 2.3 配置 OpenClaw
+OpenClaw 引导向导会自动安装 launchd 服务，也可手动操作：
 
-创建 `/volume1/docker/openclaw/config/openclaw.json`：
+```bash
+# 查看服务状态
+launchctl list | grep openclaw
+
+# 管理服务
+launchctl start com.openclaw.gateway
+launchctl stop  com.openclaw.gateway
+
+# 设置登录后自动启动（推荐）
+launchctl enable gui/$(id -u)/com.openclaw.gateway
+```
+
+### 2.3 配置 Mac Studio 作为服务器
+
+创建或编辑 `~/.openclaw/openclaw.json`：
 
 ```json5
 {
+  // ── Gateway 服务器配置 ──
   "gateway": {
     "mode": "local",
     "port": 18789,
-    "bind": "loopback",       // 不暴露到网络
+    "bind": "loopback",           // 仅绑定 127.0.0.1，通过 Tailscale Serve 对外
     "auth": {
-      "mode": "password",
-      "password": "${GATEWAY_PASSWORD}"
+      "mode": "tailscale",        // 使用 Tailscale 身份认证
+      "allowTailscale": true
     }
   },
 
+  // ── Tailscale 集成 ──
+  "tailscale": {
+    "mode": "serve",              // tailnet 内 HTTPS，不暴露公网
+    "hostname": "mac-studio"      // tailnet 域名：mac-studio.your-tailnet.ts.net
+  },
+
+  // ── 代理默认设置 ──
   "agents": {
     "defaults": {
       "model": "claude-sonnet-4-6",
@@ -182,211 +202,269 @@ TELEGRAM_BOT_TOKEN=123456789:ABCxxx
         "mode": "all",
         "docker": {
           "workspaceMount": "readwrite",
-          "networkAccess": true
+          "networkAccess": false      // 沙箱默认断网，按需开启
         }
       }
     }
   },
 
+  // ── 通讯平台 ──
   "channels": {
     "telegram": {
       "enabled": true,
       "botToken": "${TELEGRAM_BOT_TOKEN}",
       "dmPolicy": "allowlist",
-      "allowFrom": ["@your_telegram_username"]
+      "allowFrom": ["@your_telegram_username"]   // 仅允许自己
+    }
+  },
+
+  // ── NAS 工作区挂载（通过 SSHFS）──
+  "workspaces": {
+    "nas-archive": {
+      "type": "sshfs",
+      "host": "ugreen-nas",        // Tailscale 主机名
+      "remotePath": "/volume1/openclaw-workspace",
+      "mountPoint": "~/mounts/nas-archive",
+      "readonly": false
     }
   }
 }
 ```
 
-### 2.4 启动
+### 2.4 配置环境变量
 
 ```bash
-cd /volume1/docker/openclaw
-docker compose up -d
+# ~/.openclaw/.env（仅 owner 可读）
+ANTHROPIC_API_KEY=sk-ant-your-key
+TELEGRAM_BOT_TOKEN=123456789:ABCxxx
+GATEWAY_PASSWORD=your-strong-password   # 备用密码认证
+```
 
-# 查看日志
-docker compose logs -f openclaw
+```bash
+chmod 600 ~/.openclaw/.env
 ```
 
 ---
 
-## 三、Tailscale 与 OpenClaw 集成
+## 三、NAS 配置：资料库与账户管理
 
-### 3.1 Tailscale Serve（推荐）
+NAS 作为资料库，**不运行 OpenClaw**，只为 Mac Studio 提供存储空间和专用账户。
 
-Tailscale Serve 在 tailnet 内部提供 HTTPS 访问，Gateway 保持绑定在 loopback：
+### 3.1 在 NAS 上创建 OpenClaw 专用账户
 
-```json5
-// openclaw.json
-{
-  "gateway": {
-    "bind": "loopback"
-  },
-  "tailscale": {
-    "mode": "serve"     // tailnet-only HTTPS
-  }
-}
+在绿联 NAS 管理界面（UGOS）中：
+
+1. **用户管理** → 新建用户 `openclaw-agent`
+2. 设置强密码（或仅允许 SSH 密钥登录）
+3. **权限** → 仅授予特定共享文件夹的读写权限
+
+```bash
+# 在 NAS 上为 openclaw-agent 创建专用工作区目录
+mkdir -p /volume1/openclaw-workspace/{projects,archives,uploads}
+chown -R openclaw-agent:users /volume1/openclaw-workspace
+chmod 750 /volume1/openclaw-workspace
 ```
 
-开启后，可以在 tailnet 中通过 `https://ugreen-nas.your-tailnet.ts.net` 访问 OpenClaw 控制面板。
+### 3.2 Mac Studio 通过 SSH 密钥访问 NAS
 
-### 3.2 Tailscale 身份认证
+```bash
+# 在 Mac Studio 上生成 SSH 密钥（如尚未生成）
+ssh-keygen -t ed25519 -C "openclaw-agent@mac-studio" -f ~/.ssh/id_nas
 
-当 `tailscale.mode = "serve"` 时，可以使用 Tailscale 身份替代密码认证：
+# 将公钥上传到 NAS
+ssh-copy-id -i ~/.ssh/id_nas.pub openclaw-agent@ugreen-nas
+
+# 测试连接
+ssh -i ~/.ssh/id_nas openclaw-agent@ugreen-nas "echo 连接成功"
+```
+
+配置 `~/.ssh/config`，简化连接：
+
+```
+Host ugreen-nas
+    HostName ugreen-nas          # Tailscale 主机名
+    User openclaw-agent
+    IdentityFile ~/.ssh/id_nas
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+```
+
+### 3.3 通过 SSHFS 挂载 NAS 工作区
+
+```bash
+# 安装 SSHFS
+brew install --cask macfuse
+brew install sshfs
+
+# 挂载 NAS 工作区
+mkdir -p ~/mounts/nas-archive
+sshfs ugreen-nas:/volume1/openclaw-workspace ~/mounts/nas-archive \
+  -o reconnect,ServerAliveInterval=15,IdentityFile=~/.ssh/id_nas
+
+# 设置开机自动挂载（通过 launchd）
+```
+
+创建 `~/Library/LaunchAgents/com.openclaw.nas-mount.plist`：
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.openclaw.nas-mount</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/sshfs</string>
+    <string>ugreen-nas:/volume1/openclaw-workspace</string>
+    <string>/Users/YOUR_USER/mounts/nas-archive</string>
+    <string>-o</string>
+    <string>reconnect,ServerAliveInterval=15,IdentityFile=/Users/YOUR_USER/.ssh/id_nas</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+</dict>
+</plist>
+```
+
+```bash
+launchctl load ~/Library/LaunchAgents/com.openclaw.nas-mount.plist
+```
+
+---
+
+## 四、可信设备访问 Mac Studio
+
+可信设备（MacBook、iPhone）通过 Tailscale 访问 Mac Studio 上的 OpenClaw 服务。
+
+### 4.1 访问控制面板（Tailscale Serve）
+
+在加入 tailnet 的设备上，直接访问：
+
+```
+https://mac-studio.your-tailnet.ts.net
+```
+
+Tailscale Serve 提供 tailnet 内的 HTTPS 访问，不暴露公网。
+
+### 4.2 SSH 访问 Mac Studio
+
+可信设备可通过 Tailscale SSH 管理 Mac Studio：
+
+```bash
+# 开启 Tailscale SSH（在 Mac Studio 上执行一次）
+sudo tailscale up --ssh
+
+# 从 MacBook 连接
+ssh your-username@mac-studio
+```
+
+### 4.3 SSH 隧道访问（备用方案）
+
+如果不使用 Tailscale Serve，可通过 SSH 隧道：
+
+```bash
+# 在 MacBook 上建立隧道
+ssh -L 18789:localhost:18789 your-username@mac-studio
+
+# 然后访问 http://localhost:18789
+```
+
+### 4.4 Tailscale Funnel（不推荐，仅 Webhook 等特殊场景）
+
+> **⚠️ 警告**：Funnel 会将服务暴露到公网。只有需要接收 Webhook 回调等特殊情况才考虑使用，且必须配合强密码认证。
 
 ```json5
 {
+  "tailscale": {
+    "mode": "funnel"   // 公网 HTTPS
+  },
   "gateway": {
     "auth": {
-      "allowTailscale": true    // 使用 Tailscale 身份认证
+      "mode": "password"   // 必须开启密码认证
     }
   }
 }
 ```
 
-OpenClaw 会通过 `tailscale whois` 验证连接者的 Tailscale 身份。
-
-### 3.3 Tailscale Funnel（公网访问 — 不推荐）
-
-如果确实需要公网访问（如 Webhook 回调）：
-
-```json5
-{
-  "tailscale": {
-    "mode": "funnel"    // 公网 HTTPS
-  },
-  "gateway": {
-    "auth": {
-      "mode": "password"    // Funnel 模式强制要求密码
-    }
-  }
-}
-```
-
-> **⚠️ 警告**：`funnel` 模式如果 auth 不是 `password` 模式会拒绝启动，防止公网无认证暴露。
-
 ---
 
-## 四、通过 SSH 远程管理
+## 五、安全架构总结
 
-### 4.1 SSH over Tailscale
-
-Tailscale 的 SSH 是 WireGuard 端到端加密的：
-
-```bash
-# 在 macOS 上通过 Tailscale SSH 连接 NAS
-ssh root@ugreen-nas
-
-# 开启 Tailscale SSH（可选，替代传统 SSH）
-# 在 NAS 上：
-tailscale up --ssh
-```
-
-### 4.2 SSH 端口转发访问控制面板
-
-如果不使用 Tailscale Serve，可以通过 SSH 隧道访问：
-
-```bash
-# 建立 SSH 隧道
-ssh -L 18789:localhost:18789 root@ugreen-nas
-
-# 然后在本地浏览器访问 http://localhost:18789
-```
-
----
-
-## 五、Mac Mini 作为备用节点
-
-如果你有闲置的 Mac Mini，可以作为备用/互补节点：
-
-### 5.1 macOS 上安装 OpenClaw（原生）
-
-```bash
-brew tap openclaw/tap && brew install openclaw
-```
-
-### 5.2 设置为系统服务
-
-OpenClaw 的引导向导会自动将 Gateway 安装为 launchd 服务：
-
-```bash
-# 查看服务状态
-launchctl list | grep openclaw
-
-# 手动管理
-launchctl start com.openclaw.gateway
-launchctl stop com.openclaw.gateway
-```
-
-### 5.3 始终在线
-
-Mac Mini 的优势：
-
-- 原生 macOS 运行，性能无损
-- 低功耗，适合 24/7 运行
-- 支持 iMessage 等 macOS 专属通道
-- 通过 Tailscale 随处访问
-
----
-
-## 六、安全加固
-
-### 纵深防御架构
+### 隔离层级
 
 ```
-第 1 层：网络隔离
-  └── Tailscale 私有网络，零公网端口
-
-第 2 层：认证
-  └── Tailscale 身份认证 或 密码认证
-
-第 3 层：应用隔离
-  └── Docker 沙箱，限制文件系统和网络
-
-第 4 层：权限控制
-  └── 工具 allow/deny，执行审批
+┌─────────────────────────────────────────────────────────────┐
+│  层级 1：网络隔离                                            │
+│  ├── Tailscale WireGuard P2P 加密，零公网端口               │
+│  └── NAS 通过 Tailscale IP 只与 Mac Studio 通信             │
+├─────────────────────────────────────────────────────────────┤
+│  层级 2：访问路径隔离                                        │
+│  ├── 可信设备 → Mac Studio（Tailscale Serve / SSH）         │
+│  ├── Mac Studio → NAS（SSH 密钥，专用账户，SSHFS 挂载）      │
+│  └── NAS 对可信客户端不可见，无法被直接连接                  │
+├─────────────────────────────────────────────────────────────┤
+│  层级 3：应用沙箱隔离                                        │
+│  ├── OpenClaw 在 Docker 沙箱中运行                          │
+│  ├── 沙箱默认断网，按需开启                                  │
+│  └── 工具执行需要人工审批（见第 011 章）                     │
+└─────────────────────────────────────────────────────────────┘
 ```
 
 ### 安全清单
 
 ```
-□ Gateway 绑定到 loopback（不暴露到 0.0.0.0）
-□ 所有访问通过 Tailscale（零公网端口）
-□ 通讯平台设置 allowlist
-□ 敏感凭据存储在宿主机，不在容器中
+□ Mac Studio Gateway 绑定 loopback（不暴露到 0.0.0.0）
+□ Tailscale ACL 限制可信设备范围
+□ NAS 专用账户仅有最小权限（不能 SSH 到其他路径）
+□ Mac Studio → NAS 使用 SSH 密钥认证（禁用密码登录）
+□ .env 文件权限 600
+□ OpenClaw 沙箱默认 networkAccess: false
+□ Telegram/通讯平台设置 allowlist，仅允许自己
+□ 定期审查 Tailscale 设备列表，移除不再使用的设备
 □ 定期运行 openclaw security audit
-□ NAS .env 文件权限 600
-□ 定期审查 Tailscale 设备列表
-□ 禁用不使用的 Tailscale funnel 节点
-□ SSH 密钥认证（禁用密码登录）
+□ 高风险操作配置人工审批（见 011 章）
 ```
 
-### 运维建议
+### 运维常用命令
 
 ```bash
-# 定期更新
-docker compose pull && docker compose up -d
+# 查看 OpenClaw 服务状态
+launchctl list | grep openclaw
+openclaw status
+
+# 更新 OpenClaw
+brew upgrade openclaw
+launchctl stop com.openclaw.gateway && launchctl start com.openclaw.gateway
 
 # 备份配置
-tar -czf ~/openclaw-backup-$(date +%Y%m%d).tar.gz /volume1/docker/openclaw/config/
+tar -czf ~/openclaw-backup-$(date +%Y%m%d).tar.gz ~/.openclaw/
 
-# 检查日志
-docker compose logs --tail 100 openclaw
+# 检查 NAS 挂载状态
+mount | grep nas-archive
+ls ~/mounts/nas-archive
 
 # 安全审计
-docker exec openclaw openclaw security audit
+openclaw security audit
+openclaw logs --tail 100
 ```
+
+---
 
 ## 下一步
 
-进入 [009 - 故障排查与注意事项](009-troubleshooting.md) 了解常见问题的解决方法。
+- [009 - 故障排查与注意事项](009-troubleshooting.md)：常见问题的解决方法
+- [011 - 高风险操作审批工作流](011-workflow-approval.md)：支付、组织管理等操作的人工审批配置
 
 ## 参考来源
 
-- [OpenClaw 官方文档 - Tailscale](https://docs.openclaw.ai/gateway/tailscale)
-- [Medium - 零公网端口部署 OpenClaw](https://alirezarezvani.medium.com/i-deployed-openclaw-with-zero-public-ports-here-is-the-tailscale-setup-that-actually-works-86f8c9e6f158)
-- [Mager.co - OpenClaw + Mac Mini + Tailscale 始终在线](https://www.mager.co/blog/2026-02-22-openclaw-mac-mini-tailscale/)
+- [OpenClaw 官方文档 - Tailscale 集成](https://docs.openclaw.ai/gateway/tailscale)
+- [Mager.co - OpenClaw + Mac Studio + Tailscale 始终在线方案](https://www.mager.co/blog/2026-02-22-openclaw-mac-mini-tailscale/)
+- [Tailscale 文档 - ACL 访问控制](https://tailscale.com/kb/1018/acls/)
+- [Tailscale 文档 - Serve 与 Funnel](https://tailscale.com/kb/1242/tailscale-serve/)
+- [OpenClaw Blog - SSH 和 Tailscale 远程访问](https://openclawblog.space/articles/remote-openclaw-access-with-ssh-and-tailscale-a-practical-guide)
 - [AI Maker - OpenClaw 安全加固三层指南](https://aimaker.substack.com/p/openclaw-security-hardening-guide)
 - [Nebius - OpenClaw 安全架构](https://nebius.com/blog/posts/openclaw-security)
-- [OpenClaw Blog - SSH 和 Tailscale 远程访问](https://openclawblog.space/articles/remote-openclaw-access-with-ssh-and-tailscale-a-practical-guide)

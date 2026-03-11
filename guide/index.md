@@ -29,9 +29,10 @@
 | [005 - 工具类软件配置](005-tool-integration.md) | 浏览器、日历、邮件、支付等 MCP 工具集成 | ⭐⭐⭐ |
 | [006 - 技能与进化配置](006-skills-and-evolution.md) | 技能管理、安全审查、Memory/Soul 进化机制 | ⭐⭐⭐ |
 | [007 - 安全沙箱配置](007-security-sandbox.md) | 本机运行的安全配置、沙箱隔离 | ⭐⭐⭐ |
-| [008 - 组网与远程沙箱](008-remote-sandbox.md) | 绿联 NAS + macOS + Tailscale 远程部署 | ⭐⭐⭐⭐ |
+| [008 - 组网与远程沙箱](008-remote-sandbox.md) | Mac Studio 中心节点 + NAS 资料库 + Tailscale 三层隔离部署 | ⭐⭐⭐⭐ |
 | [009 - 故障排查与注意事项](009-troubleshooting.md) | 常见问题、排错流程、注意事项 | ⭐⭐ |
 | [010 - 使用场景与用户旅程](010-usage-scenarios.md) | 实际案例：从日常助手到团队协作 | ⭐⭐ |
+| [011 - 高风险操作审批工作流](011-workflow-approval.md) | 支付、组织管理等操作的强制人工审批配置 | ⭐⭐⭐⭐ |
 
 ## 配套资源
 
