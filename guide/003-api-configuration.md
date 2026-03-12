@@ -44,9 +44,9 @@ Claude 是 OpenClaw 社区中使用最广泛的模型，尤其擅长工具调用
 
 | 模型 | 特点 | 适用场景 |
 |------|------|----------|
-| Claude Opus 4.5 | 最强能力，最慢速度 | 复杂推理任务 |
-| Claude Sonnet 4.5 | 能力与速度平衡 | 日常代理（推荐） |
-| Claude Haiku 4.5 | 最快速度，最便宜 | 简单对话、快速回复 |
+| Claude Opus 4.6 (`claude-opus-4-6`) | 最强能力，最慢速度 | 复杂推理任务 |
+| Claude Sonnet 4.6 (`claude-sonnet-4-6`) | 能力与速度平衡 | 日常代理（推荐） |
+| Claude Haiku 4.5 (`claude-haiku-4-5`) | 最快速度，最便宜 | 简单对话、快速回复 |
 
 ### 1.4 配置到 OpenClaw
 

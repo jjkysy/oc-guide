@@ -52,12 +52,12 @@
     "jobs": [
       {
         "name": "morning-briefing",
-        "schedule": "0 7 30 * * *",
+        "schedule": "0 30 7 * * *",
         "prompt": "查看今日日历和待办，发送简要摘要"
       },
       {
         "name": "evening-summary",
-        "schedule": "0 18 0 * * *",
+        "schedule": "0 0 18 * * *",
         "prompt": "汇总今日工作，保存到记忆文件"
       }
     ]
